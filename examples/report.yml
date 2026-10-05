@@ -1,0 +1,64 @@
+---
+- name: Generate a styled workbook
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: '{{ ansible_playbook_python }}'
+  tasks:
+    - name: Write the report
+      ansible_tools.reporting.xlsx_report:
+        path: '{{ report_path | default("/tmp/ansible-report.xlsx") }}'
+        properties:
+          title: Infrastructure inventory
+          description: Example of declarative reporting with Ansible
+        styles:
+          header:
+            font: {bold: true, color: 'FFFFFF'}
+            fill: {color: '1F4E78'}
+            alignment: {horizontal: center, wrap_text: true}
+          success:
+            background: 'C6EFCE'
+            font: {color: '006100'}
+          failed:
+            background: 'FFC7CE'
+            font: {color: '9C0006', bold: true}
+          total:
+            font: {bold: true}
+            border:
+              top: {style: thin, color: '1F4E78'}
+        sheets:
+          - name: Summary
+            header_style: header
+            freeze_panes: A2
+            auto_filter: true
+            columns:
+              - {name: Server, width: 25}
+              - {name: Status, width: 18}
+              - {name: Updates, width: 14, number_format: '0'}
+            rows:
+              - [server01, SUCCESS, 12]
+              - {Server: server02, Status: FAILED, Updates: 3}
+              - [server03, SUCCESS, 0]
+            tables:
+              - {name: Inventory, style: TableStyleMedium2}
+            conditional_formatting:
+              - {column: Status, equals: SUCCESS, style: success}
+              - {column: Status, equals: FAILED, style: failed}
+          - name: Details
+            header_style: header
+            freeze_panes: A2
+            columns:
+              - {name: Metric, width: 28}
+              - {name: Value, width: 24}
+            rows:
+              - values: [Total updates, {formula: '=SUM(Summary!C2:C4)'}]
+                style: total
+              - [Report date, {value: '2026-10-01', type: date, number_format: yyyy-mm-dd}]
+              - [Compliance, {value: 0.95, number_format: '0.0%'}]
+      register: report
+      run_once: true
+
+    - name: Show the report location
+      ansible.builtin.debug:
+        var: report.path

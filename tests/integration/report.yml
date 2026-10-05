@@ -1,0 +1,156 @@
+---
+- name: Exercise XLSX reports through real Ansible module packaging
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    report_styles:
+      header:
+        font: {bold: true, color: 'FFFFFF'}
+        fill: {color: '1F4E78'}
+      failed:
+        background: 'FFC7CE'
+        font: {color: '9C0006'}
+    report_sheets:
+      - name: Summary
+        header_style: header
+        columns:
+          - {name: Host, width: 25}
+          - {name: Status, width: 15}
+        rows:
+          - [server01, SUCCESS]
+          - {Host: server02, Status: FAILED}
+        freeze_panes: A2
+        auto_filter: true
+        tables:
+          - {name: Inventory}
+        conditional_formatting:
+          - {column: Status, equals: FAILED, style: failed}
+      - name: Totals
+        columns: [{name: Total}]
+        rows:
+          - [{formula: '=COUNTA(Summary!A2:A3)'}]
+  tasks:
+    - name: Allocate a temporary test directory
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: xlsx-report-test-
+      register: test_directory
+
+    - name: Verify report behavior
+      block:
+        - name: Predict creation in check mode
+          ansible_tools.reporting.xlsx_report:
+            path: '{{ test_directory.path }}/report.xlsx'
+            styles: '{{ report_styles }}'
+            sheets: '{{ report_sheets }}'
+          check_mode: true
+          register: predicted
+
+        - name: Inspect the predicted destination
+          ansible.builtin.stat:
+            path: '{{ test_directory.path }}/report.xlsx'
+          register: absent
+
+        - name: Check that prediction wrote no file
+          ansible.builtin.assert:
+            that:
+              - predicted is changed
+              - not absent.stat.exists
+
+        - name: Create the actual report
+          ansible_tools.reporting.xlsx_report:
+            path: '{{ test_directory.path }}/report.xlsx'
+            styles: '{{ report_styles }}'
+            sheets: '{{ report_sheets }}'
+          register: created
+
+        - name: Set an existing file permission to preserve
+          ansible.builtin.file:
+            path: '{{ test_directory.path }}/report.xlsx'
+            mode: '0640'
+
+        - name: Inspect the created report
+          ansible.builtin.stat:
+            path: '{{ created.path }}'
+          register: before
+
+        - name: Repeat with overwrite disabled
+          ansible_tools.reporting.xlsx_report:
+            path: '{{ created.path }}'
+            overwrite: false
+            styles: '{{ report_styles }}'
+            sheets: '{{ report_sheets }}'
+          register: repeated
+
+        - name: Predict a changed report
+          ansible_tools.reporting.xlsx_report:
+            path: '{{ created.path }}'
+            properties: {title: Updated metadata}
+            styles: '{{ report_styles }}'
+            sheets: '{{ report_sheets }}'
+          check_mode: true
+          register: changed_prediction
+
+        - name: Reject an overwrite of different contents
+          ansible_tools.reporting.xlsx_report:
+            path: '{{ created.path }}'
+            overwrite: false
+            properties: {title: Updated metadata}
+            styles: '{{ report_styles }}'
+            sheets: '{{ report_sheets }}'
+          register: rejected
+          failed_when: false
+
+        - name: Reject an invalid report definition
+          ansible_tools.reporting.xlsx_report:
+            path: '{{ created.path }}'
+            sheets: []
+          register: invalid
+          failed_when: false
+
+        - name: Inspect the unchanged file
+          ansible.builtin.stat:
+            path: '{{ created.path }}'
+          register: after
+
+        - name: Verify results and file preservation
+          ansible.builtin.assert:
+            that:
+              - created is changed
+              - created.checksum == predicted.checksum
+              - created.sheet_count == 2
+              - created.row_count == 3
+              - created.sheets == ['Summary', 'Totals']
+              - repeated is not changed
+              - changed_prediction is changed
+              - '"overwrite is false" in rejected.msg'
+              - '"at least one worksheet" in invalid.msg'
+              - before.stat.checksum == after.stat.checksum
+              - before.stat.mtime == after.stat.mtime
+
+        - name: Replace the workbook with changed metadata
+          ansible_tools.reporting.xlsx_report:
+            path: '{{ created.path }}'
+            properties: {title: Updated metadata}
+            styles: '{{ report_styles }}'
+            sheets: '{{ report_sheets }}'
+          register: updated
+
+        - name: Verify existing permissions survived the atomic replacement
+          ansible.builtin.stat:
+            path: '{{ created.path }}'
+          register: updated_stat
+
+        - name: Assert update behavior
+          ansible.builtin.assert:
+            that:
+              - updated is changed
+              - updated.checksum != created.checksum
+              - updated_stat.stat.mode == '0640'
+      always:
+        - name: Remove the temporary test directory
+          ansible.builtin.file:
+            path: '{{ test_directory.path }}'
+            state: absent

@@ -1,0 +1,23 @@
+---
+namespace: ansible_tools
+name: reporting
+version: 0.1.0
+readme: README.md
+authors:
+  - ansible-tools contributors
+description: Declarative XLSX reports for Ansible using openpyxl.
+tags:
+  - reporting
+  - tools
+dependencies: {}
+build_ignore:
+  - .venv*
+  - .test-collections
+  - .pytest_cache
+  - .ruff_cache
+  - .gitignore
+  - .github
+  - AGENTS.md
+  - tests
+  - requirements-dev.txt
+  - pyproject.toml

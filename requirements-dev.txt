@@ -1,0 +1,5 @@
+-r requirements.txt
+ansible-core>=2.16,<3
+pytest>=8,<10
+ruff>=0.9,<1
+
